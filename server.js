@@ -1,25 +1,25 @@
+import dotenv from 'dotenv';
+dotenv.config()
+
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 
-// Configure dotenv
-dotenv.config();
 
 // Import routes
-// import authRoutes from './routes/Auth.js';
-// import dashboardRoutes from './routes/Dashboard.js';
-// import assetRoutes from './routes/Assets.js';
-// import organizationRoutes from './routes/Organizations.js';
-// // import userRoutes from './routes/users.js';
-// import categoryRoutes from './routes/categories.js';
-// // import reportRoutes from './routes/reports.js';
+import authRoutes from './routes/Auth.js';
+import dashboardRoutes from './routes/Dashboard.js';
+import assetRoutes from './routes/Assets.js';
+import organizationRoutes from './routes/Organizations.js';
+import userRoutes from './routes/users.js';
+import categoryRoutes from './routes/categories.js';
+import reportRoutes from './routes/reports.js';
 
-// Import middleware
-// import errorHandler from './middleware/ErrorHandler.js';
+//Import middleware
+import errorHandler from './middleware/ErrorHandler.js';
 
 const app = express();
 
@@ -58,7 +58,7 @@ const limiter = rateLimit({
         message: 'Too many requests, please try again later.'
     }
 });
-app.use('/api/', limiter);
+// app.use('/api/', limiter); // Temporarily disabled for debugging
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -75,13 +75,24 @@ mongoose.connect(process.env.MONGODB_URI)
 .catch(err => console.error('MongoDB connection error:', err));
 
 // Routes
-// app.use('/api/auth', authRoutes);
-// app.use('/api/assets', assetRoutes);
-// app.use('/api/dashboard', dashboardRoutes);
-// app.use('/api/organizations', organizationRoutes);
-// // app.use('/api/users', userRoutes);
-// app.use('/api/categories', categoryRoutes);
-// // app.use('/api/reports', reportRoutes);
+const mountRoutes = async () => {
+  try {
+    app.use('/api/auth', authRoutes);
+    app.use('/api/assets',assetRoutes);
+    app.use('/api/dashboard', dashboardRoutes);
+    app.use('/api/organizations', organizationRoutes);
+    app.use('/api/users', userRoutes);
+    app.use('/api/categories', categoryRoutes);
+    app.use('/api/reports', reportRoutes);
+    
+    console.log('Routes mounted successfully');
+  } catch (err) {
+    console.error('Route mounting error:', err);
+    process.exit(1);
+  }
+};
+
+mountRoutes();
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -98,23 +109,39 @@ app.get('/', (req, res) => {
     res.json({ 
         message: 'Asset Manager API is running!',
         version: '1.0.0',
+        status: 'OK',
         endpoints: [
             '/api/health',
-            '/api/auth/',
-            '/api/assets/',
-            '/api/categories/*'
-        ]
+            '/api/auth/*',
+            '/api/assets/*',
+            '/api/dashboard/*',
+            '/api/organizations/*',
+            '/api/users/*',
+            '/api/categories/*',
+            '/api/reports/*'
+        ],
+        documentation: {
+            'Setup Development Data': 'npm run setup-dev',
+            'Health Check': 'GET /api/health',
+            'Demo Credentials': {
+                'Admin Token': 'demo-admin-token',
+                'User Token': 'demo-user-token',
+                'Usage': 'Add "Authorization: Bearer {token}" header'
+            }
+        }
     });
 });
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
-// 404 handler
-app.use('*', (req, res) => {
+// 404 handler - use a more specific pattern instead of '*'
+app.use((req, res) => {
     res.status(404).json({
         success: false,
-        message: 'API endpoint not found'
+        message: 'API endpoint not found',
+        path: req.originalUrl,
+        method: req.method
     });
 });
 

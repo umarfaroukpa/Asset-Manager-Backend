@@ -2,6 +2,8 @@ import { initializeApp } from "firebase/app";
 import { getAuth,  getIdToken, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 
+import admin from 'firebase-admin';
+
 // Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyCyzjBHJRXUCIUZK5s-XcTypje9adqESyw",
@@ -17,6 +19,29 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+  try {
+    const serviceAccount = {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+    };
+
+    // Check if already initialized
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      console.log('Firebase Admin initialized successfully');
+    }
+  } catch (error) {
+    console.error('Firebase Admin initialization error:', error);
+  }
+} else {
+  console.warn('Firebase Admin not initialized - missing environment variables');
+}
+
 
 // Store the current token
 let currentToken = null;
@@ -95,6 +120,7 @@ export const signIn = async (email, password) => {
     }
   }
 };
+
 
 // Function to sign out
 export const signOutUser = async () => {

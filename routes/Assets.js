@@ -1,10 +1,11 @@
-const express = require('express');
+import express from 'express';
+import Asset from '../models/Asset.js';
+import AssetsLog from '../models/AssetsLog.js';
+import { authenticate, authorize } from '../middleware/auth.js';
+import { validateAsset } from '../middleware/Validations.js';
+import rateLimit from '../middleware/LimteRate.js';
+
 const router = express.Router();
-const Asset = require('../models/Assets');
-const AssetLog = require('../models/AssetsLog');
-const { authenticate, authorize } = require('../middleware/auth');
-const { validateAsset } = require('../middleware/Validations');
-const rateLimit = require('../middleware/LimiteRate');
 
 // Get all assets with pagination, filtering, and sorting
 router.get('/', authenticate, rateLimit('assets'), async (req, res) => {
@@ -153,7 +154,7 @@ router.get('/export/csv', authenticate, async (req, res) => {
 // Get asset history
 router.get('/:id/history', authenticate, async (req, res) => {
   try {
-    const history = await AssetLog.find({ asset: req.params.id })
+    const history = await AssetsLog.find({ asset: req.params.id })
       .sort({ createdAt: -1 })
       .populate('performedBy', 'name email')
       .lean();
@@ -164,4 +165,4 @@ router.get('/:id/history', authenticate, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

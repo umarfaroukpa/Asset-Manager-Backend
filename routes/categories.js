@@ -1,7 +1,10 @@
-const express = require('express');
-const { authenticateToken, requireRole } = require('../middleware/auth');
-const Category = require('../models/Category');
-const router = express.Router();// @route   GET /api/categories
+import express from 'express';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import Category from '../models/Category.js';
+
+const router = express.Router();
+
+// @route   GET /api/categories
 // @desc    Get all categories
 // @access  Private
 router.get('/', authenticateToken, async (req, res) => {
@@ -18,7 +21,9 @@ router.get('/', authenticateToken, async (req, res) => {
         success: false,
         message: 'Server error fetching categories'
     });
-}});// @route   POST /api/categories
+}});
+
+// @route   POST /api/categories
 // @desc    Create new category
 // @access  Private (Admin/Manager only)
 router.post('/', authenticateToken, requireRole('admin', 'manager'),
@@ -52,5 +57,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'),
         success: false,
         message: 'Server error creating category'
     });
-}});module.exports = router;
+}});
+
+export default router;
 

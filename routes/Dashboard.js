@@ -1,11 +1,13 @@
-const express = require('express');
-const Asset = require('../models/Asset');
-const Category = require('../models/Category');
-const AuditLog = require('../models/AuditLog');
-const User = require('../models/User');
-const Organization = require('../models/Organizations');
-const router = express.Router();//authentication middleware 
-const { authenticateToken } = require('../middleware/auth');//auth middleware to all dashboard routes
+import express from 'express';
+import Asset from '../models/Asset.js';
+import Category from '../models/Category.js';
+import AuditLog from '../models/AuditLog.js';
+import User from '../models/User.js';
+import Organization from '../models/Organizations.js';
+const router = express.Router();
+
+// Authentication middleware 
+import { authenticateToken } from '../middleware/auth.js';//auth middleware to all dashboard routes
 router.use(authenticateToken);// GET /api/dashboard/stats
 router.get('/stats', async (req, res) => {
   try {
@@ -150,7 +152,9 @@ res.json({
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
-});// GET /api/dashboard/recent-assets
+});
+
+// GET /api/dashboard/recent-assets
 router.get('/recent-assets', async (req, res) => {
   try {
     console.log('Recent assets endpoint hit');const limit = parseInt(req.query.limit) || 10;
@@ -178,7 +182,9 @@ res.json({
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
-});// GET /api/dashboard/quick-stats - A simpler endpoint for testing
+});
+
+// GET /api/dashboard/quick-stats - A simpler endpoint for testing
 router.get('/quick-stats', async (req, res) => {
   try {
     console.log('Quick stats endpoint hit');const quickStats = {
@@ -202,7 +208,9 @@ res.json({
       dbConnected: false
     });
   }
-});// GET /api/dashboard/health - Health check endpoint
+});
+
+// GET /api/dashboard/health - Health check endpoint
 router.get('/health', (req, res) => {
   res.json({
     success: true,
@@ -210,5 +218,7 @@ router.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     user: req.user ? 'Authenticated' : 'Not authenticated'
   });
-});module.exports = router;
+});
+
+export default router;
 

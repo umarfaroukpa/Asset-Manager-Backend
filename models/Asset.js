@@ -1,6 +1,4 @@
-// models/Assets.js
-const mongoose = require('mongoose');
-const validator = require('validator');
+import mongoose from 'mongoose';
 
 const assetSchema = new mongoose.Schema({
   name: {
@@ -29,12 +27,9 @@ const assetSchema = new mongoose.Schema({
     uppercase: true
   },
   category: {
-    type: String,
-    required: [true, 'Category is required'],
-    enum: {
-      values: ['Electronics', 'Furniture', 'Vehicle', 'Equipment', 'Software', 'Other'],
-      message: 'Invalid category'
-    }
+    type: mongoose.Schema.ObjectId,
+    ref: 'Category',
+    required: [true, 'Category is required']
   },
   status: {
     type: String,
@@ -156,4 +151,4 @@ assetSchema.pre('save', function(next) {
   next();
 });
 
-module.exports = mongoose.model('Asset', assetSchema);
+export default mongoose.model('Asset', assetSchema);

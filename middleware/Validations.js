@@ -1,15 +1,20 @@
-const Joi = require('joi');const validate = (schema) => {
+import Joi from 'joi';
+
+const validate = (schema) => {
     return (req, res, next) => {
-        const { error } = schema.validate(req.body);    if (error) {
-        const errorMessage = error.details[0].message;
-        return res.status(400).json({
-            success: false,
-            message: errorMessage
-        });
-    }
-    
-    next();
-};};// Enhanced validation schemas
+        const { error } = schema.validate(req.body);
+        
+        if (error) {
+            const errorMessage = error.details[0].message;
+            return res.status(400).json({
+                success: false,
+                message: errorMessage
+            });
+        }
+        
+        next();
+    };
+};// Enhanced validation schemas
 const schemas = {
     category: Joi.object({
         name: Joi.string().trim().min(1).max(100).required(),
@@ -96,5 +101,10 @@ assetUpdate: Joi.object({
         notes: Joi.string().trim().max(500).optional()
     }).optional(),
     customFields: Joi.object().optional()
-})};module.exports = { validate, schemas };
+})};export { validate, schemas };
+
+// Specific validation middleware functions
+export const validateAsset = validate(schemas.asset);
+export const validateCategory = validate(schemas.category);
+export const validateUser = validate(schemas.user);
 
