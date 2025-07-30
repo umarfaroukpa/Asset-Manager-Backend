@@ -37,24 +37,35 @@ router.get('/', authenticate, rateLimit('assets'), async (req, res) => {
       .skip((parseInt(page) - 1) * parseInt(limit))
       .populate('assignedTo', 'name email')
       .lean();
+
+      // Ensure we always return an array, even if empty
+    const assetsArray = Array.isArray(assets) ? assets : [];
     
-    res.json({
+   res.json({
       success: true,
-      data: {
-        assets,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / parseInt(limit))
-        }
+      assets: assetsArray, 
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Error fetching assets:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch assets',
+      assets: [], //This to ensure we return empty array on error
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 0,
+        pages: 0
+      }
+    });
   }
 });
-
 // Create new asset with logging
 router.post('/', authenticate, validateAsset, async (req, res) => {
   try {

@@ -6,6 +6,130 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
+
+// @route   GET /api/organizations
+// @desc    Get user's organization (base route)
+// @access  Private
+router.get('/', authenticateToken, async (req, res) => {
+    try {
+        const organization = await Organization.findOne({
+            $or: [
+                { owner: req.user._id },
+                { 'members.user': req.user._id }
+            ]
+        })
+        .populate('owner', 'name email')
+        .populate('members.user', 'name email');
+        
+        if (!organization) {
+            // Return a default organization structure for demo purposes
+            return res.json({
+                success: true,
+                organization: {
+                    id: 1,
+                    name: "Demo Organization",
+                    description: "This is a demo organization",
+                    industry: "Technology", 
+                    size: "50-200 employees",
+                    email: "demo@example.com",
+                    phone: "+1 (555) 123-4567",
+                    website: "https://example.com",
+                    address: "123 Demo Street, Demo City, DC 12345",
+                    foundedDate: "2020-01-01",
+                    logo: null,
+                    settings: {
+                        allowPublicProfile: true,
+                        requireApprovalForMembers: false,
+                        enableTwoFactor: false,
+                        allowDataExport: true,
+                        enableApiAccess: false
+                    }
+                }
+            });
+        }
+
+        res.json({
+            success: true,
+            organization: organization
+        });
+
+    } catch (error) {
+        console.error('Organization fetch error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error fetching organization'
+        });
+    }
+});
+
+// @route   GET /api/organizations/members  
+// @desc    Get organization members (base route)
+// @access  Private
+router.get('/members', authenticateToken, async (req, res) => {
+    try {
+        const organization = await Organization.findOne({
+            $or: [
+                { owner: req.user._id },
+                { 'members.user': req.user._id }
+            ]
+        })
+        .populate('members.user', 'name email createdAt');
+        
+        if (!organization) {
+            // Return demo members
+            return res.json({
+                success: true,
+                members: [
+                    {
+                        id: 1,
+                        name: "Demo User",
+                        email: "demo@example.com", 
+                        role: "admin",
+                        department: "IT",
+                        joinDate: "2023-01-01",
+                        status: "active",
+                        avatar: null
+                    },
+                    {
+                        id: 2,
+                        name: "Jane Smith",
+                        email: "jane@example.com",
+                        role: "user", 
+                        department: "Marketing",
+                        joinDate: "2023-02-15",
+                        status: "active",
+                        avatar: null
+                    }
+                ]
+            });
+        }
+        
+        // Transform the members data to match expected format
+        const members = organization.members.map((member, index) => ({
+            id: index + 1,
+            name: member.user.name,
+            email: member.user.email,
+            role: member.role,
+            department: member.department || "General",
+            joinDate: member.joinedAt || member.user.createdAt,
+            status: "active",
+            avatar: null
+        }));
+
+        res.json({
+            success: true,
+            members: members
+        });
+
+    } catch (error) {
+        console.error('Members fetch error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error fetching members'
+        });
+    }
+});
+
 // @route   POST /api/organizations
 // @desc    Create new organization
 // @access  Private

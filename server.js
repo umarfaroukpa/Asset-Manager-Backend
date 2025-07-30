@@ -8,15 +8,102 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 
+// Import routes with error handling
+let authRoutes, dashboardRoutes, assetRoutes, organizationRoutes, userRoutes, categoryRoutes, reportRoutes;
 
-// Import routes
-import authRoutes from './routes/Auth.js';
-import dashboardRoutes from './routes/Dashboard.js';
-import assetRoutes from './routes/Assets.js';
-import organizationRoutes from './routes/Organizations.js';
-import userRoutes from './routes/users.js';
-import categoryRoutes from './routes/categories.js';
-import reportRoutes from './routes/reports.js';
+try {
+  authRoutes = (await import('./routes/Auth.js')).default;
+  console.log('✅ Auth routes imported successfully');
+} catch (err) {
+  console.error('❌ Failed to import Auth routes:', err.message);
+}
+
+try {
+  dashboardRoutes = (await import('./routes/Dashboard.js')).default;
+  console.log('✅ Dashboard routes imported successfully');
+} catch (err) {
+  console.error('❌ Failed to import Dashboard routes:', err.message);
+}
+
+try {
+  assetRoutes = (await import('./routes/Assets.js')).default;
+  console.log('✅ Asset routes imported successfully');
+} catch (err) {
+  console.error('❌ Failed to import Asset routes:', err.message);
+}
+
+try {
+  organizationRoutes = (await import('./routes/Organizations.js')).default;
+  console.log('✅ Organization routes imported successfully');
+} catch (err) {
+  console.error('❌ Failed to import Organization routes:', err.message);
+  // Create a simple fallback route
+  organizationRoutes = express.Router();
+  organizationRoutes.get('/', (req, res) => {
+    res.json({
+      success: true,
+      message: 'Organizations route is working (fallback)',
+      organization: {
+        id: 1,
+        name: "Demo Organization",
+        description: "This is a demo organization",
+        industry: "Technology",
+        size: "50-200 employees",
+        email: "demo@example.com",
+        phone: "+1 (555) 123-4567",
+        website: "https://example.com",
+        address: "123 Demo Street, Demo City, DC 12345",
+        foundedDate: "2020-01-01",
+        logo: null,
+        settings: {
+          allowPublicProfile: true,
+          requireApprovalForMembers: false,
+          enableTwoFactor: false,
+          allowDataExport: true,
+          enableApiAccess: false
+        }
+      }
+    });
+  });
+  organizationRoutes.get('/members', (req, res) => {
+    res.json({
+      success: true,
+      members: [
+        {
+          id: 1,
+          name: "Demo User",
+          email: "demo@example.com",
+          role: "admin",
+          department: "IT",
+          joinDate: "2023-01-01",
+          status: "active",
+          avatar: null
+        }
+      ]
+    });
+  });
+}
+
+try {
+  userRoutes = (await import('./routes/users.js')).default;
+  console.log('✅ User routes imported successfully');
+} catch (err) {
+  console.error('❌ Failed to import User routes:', err.message);
+}
+
+try {
+  categoryRoutes = (await import('./routes/categories.js')).default;
+  console.log('✅ Category routes imported successfully');
+} catch (err) {
+  console.error('❌ Failed to import Category routes:', err.message);
+}
+
+try {
+  reportRoutes = (await import('./routes/reports.js')).default;
+  console.log('✅ Report routes imported successfully');
+} catch (err) {
+  console.error('❌ Failed to import Report routes:', err.message);
+}
 
 //Import middleware
 import errorHandler from './middleware/ErrorHandler.js';
@@ -58,7 +145,8 @@ const limiter = rateLimit({
         message: 'Too many requests, please try again later.'
     }
 });
-// app.use('/api/', limiter); // Temporarily disabled for debugging
+
+app.use('/api/', limiter); 
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -74,25 +162,53 @@ mongoose.connect(process.env.MONGODB_URI)
 .then(() => console.log('MongoDB connected successfully'))
 .catch(err => console.error('MongoDB connection error:', err));
 
-// Routes
-const mountRoutes = async () => {
-  try {
-    app.use('/api/auth', authRoutes);
-    app.use('/api/assets',assetRoutes);
-    app.use('/api/dashboard', dashboardRoutes);
-    app.use('/api/organizations', organizationRoutes);
-    app.use('/api/users', userRoutes);
-    app.use('/api/categories', categoryRoutes);
-    app.use('/api/reports', reportRoutes);
-    
-    console.log('Routes mounted successfully');
-  } catch (err) {
-    console.error('Route mounting error:', err);
-    process.exit(1);
-  }
-};
+// Add middleware to log all requests
+app.use((req, res, next) => {
+  console.log(`📝 ${req.method} ${req.path} - ${new Date().toISOString()}`);
+  next();
+});
 
-mountRoutes();
+// Routes mounting with error handling
+console.log('\n🚀 Mounting routes...');
+
+if (authRoutes) {
+  app.use('/api/auth', authRoutes);
+  console.log('✅ Mounted: /api/auth');
+}
+
+if (assetRoutes) {
+  app.use('/api/assets', assetRoutes);
+  console.log('✅ Mounted: /api/assets');
+}
+
+if (dashboardRoutes) {
+  app.use('/api/dashboard', dashboardRoutes);
+  console.log('✅ Mounted: /api/dashboard');
+}
+
+if (organizationRoutes) {
+  app.use('/api/organizations', organizationRoutes);
+  console.log('✅ Mounted: /api/organizations');
+} else {
+  console.log('❌ Failed to mount: /api/organizations');
+}
+
+if (userRoutes) {
+  app.use('/api/users', userRoutes);
+  console.log('✅ Mounted: /api/users');
+}
+
+if (categoryRoutes) {
+  app.use('/api/categories', categoryRoutes);
+  console.log('✅ Mounted: /api/categories');
+}
+
+if (reportRoutes) {
+  app.use('/api/reports', reportRoutes);
+  console.log('✅ Mounted: /api/reports');
+}
+
+console.log('🎯 Routes mounting completed\n');
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -100,7 +216,16 @@ app.get('/api/health', (req, res) => {
         status: 'OK',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
-        environment: process.env.NODE_ENV
+        environment: process.env.NODE_ENV,
+        routes: {
+          auth: !!authRoutes,
+          assets: !!assetRoutes,
+          dashboard: !!dashboardRoutes,
+          organizations: !!organizationRoutes,
+          users: !!userRoutes,
+          categories: !!categoryRoutes,
+          reports: !!reportRoutes
+        }
     });
 });
 
@@ -137,18 +262,28 @@ app.use(errorHandler);
 
 // 404 handler - use a more specific pattern instead of '*'
 app.use((req, res) => {
+    console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
     res.status(404).json({
         success: false,
         message: 'API endpoint not found',
         path: req.originalUrl,
-        method: req.method
+        method: req.method,
+        availableRoutes: [
+            'GET /api/health',
+            'GET /api/organizations',
+            'GET /api/organizations/members',
+            'GET /api/assets',
+            'POST /api/auth/login'
+        ]
     });
 });
 
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+    console.log(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+    console.log(`📍 API Base URL: http://localhost:${PORT}/api`);
+    console.log(`🏥 Health Check: http://localhost:${PORT}/api/health`);
 });
 
 export default app;

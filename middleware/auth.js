@@ -1,5 +1,3 @@
-// middleware/auth.js - Updated with file-based Firebase configuration
-
 import jwt from 'jsonwebtoken';
 import admin from 'firebase-admin';
 import fs from 'fs';
@@ -101,7 +99,7 @@ const initializeFirebase = () => {
   }
 };
 
-// Helper function to detect if token is a Firebase ID token
+// Firebase token detection
 const isFirebaseToken = (token) => {
   try {
     const parts = token.split('.');
@@ -111,19 +109,68 @@ const isFirebaseToken = (token) => {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
     
     // Firebase tokens have specific characteristics
-    return (
+    const isFirebase = (
       header.alg === 'RS256' &&
       payload.iss && 
       payload.iss.includes('securetoken.google.com') &&
       payload.aud &&
-      payload.firebase
+      payload.firebase &&
+      payload.auth_time &&
+      payload.exp &&
+      payload.iat
     );
+    
+    console.log('🔍 Token analysis:', {
+      algorithm: header.alg,
+      issuer: payload.iss,
+      audience: payload.aud,
+      hasFirebaseField: !!payload.firebase,
+      hasAuthTime: !!payload.auth_time,
+      isFirebaseToken: isFirebase
+    });
+    
+    return isFirebase;
   } catch (error) {
+    console.log('❌ Token parsing failed:', error.message);
     return false;
   }
 };
 
-// Authentication middleware - supports both JWT and Firebase tokens
+//More robust JWT token detection
+const isJWTToken = (token) => {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    
+    const header = JSON.parse(Buffer.from(parts[0], 'base64').toString());
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+    
+    // JWT tokens characteristics
+    const isJWT = (
+      (header.alg === 'HS256' || header.alg === 'HS512') && // Our app likely uses HMAC
+      payload.id && // Our JWT tokens likely have an 'id' field
+      payload.iat && // Issued at time
+      payload.exp && // Expiration time
+      !payload.firebase && // Not a Firebase token
+      !payload.iss?.includes('securetoken.google.com') // Not issued by Firebase
+    );
+    
+    console.log('🔍 JWT analysis:', {
+      algorithm: header.alg,
+      hasId: !!payload.id,
+      hasIat: !!payload.iat,
+      hasExp: !!payload.exp,
+      isJWTToken: isJWT
+    });
+    
+    return isJWT;
+  } catch (error) {
+    console.log('❌ JWT parsing failed:', error.message);
+    return false;
+  }
+};
+
+// Authentication middleware with better error handling and token detection
 const authenticate = async (req, res, next) => {
   try {
     // Initialize Firebase on first use (lazy initialization)
@@ -140,17 +187,65 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.replace('Bearer ', '');
     let user;
     let authType = 'unknown';
+    let firebaseUid = null;
     
     console.log('🔍 Processing authentication...');
-    console.log('   Token type detection:', {
-      length: token.length,
-      isFirebase: firebaseAvailable && isFirebaseToken(token),
-      hasFirebasePrefix: token.startsWith('firebase_'),
-      firebaseAvailable
-    });
+    console.log('   Token length:', token.length);
+    console.log('   Route:', req.method, req.path);
     
-    // Method 1: Handle Firebase ID tokens (auto-detected)
-    if (firebaseAvailable && isFirebaseToken(token)) {
+    // Better token type detection order
+    let tokenProcessed = false;
+    
+    // Method 1: Handle explicit Firebase prefix (legacy support) - Check this FIRST
+    if (token.startsWith('firebase_')) {
+      console.log('🔥 Detected prefixed Firebase token...');
+      
+      if (!firebaseAvailable) {
+        return res.status(503).json({ 
+          success: false, 
+          message: 'Firebase authentication is not configured' 
+        });
+      }
+      
+      try {
+        const firebaseToken = token.replace('firebase_', '');
+        console.log('🔥 Verifying prefixed Firebase token...');
+        const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
+        authType = 'firebase_prefixed';
+        firebaseUid = decodedToken.uid;
+        tokenProcessed = true;
+        
+        user = await User.findOne({ firebaseUID: decodedToken.uid });
+        if (!user) {
+          console.log('👤 Creating new user from prefixed Firebase token...');
+          user = new User({
+            firebaseUID: decodedToken.uid,
+            email: decodedToken.email,
+            name: decodedToken.name || decodedToken.email?.split('@')[0] || 'Unknown User',
+            role: 'user',
+            isActive: true,
+            permissions: ['read']
+          });
+          await user.save();
+          console.log('✅ New user created in database');
+        }
+        
+        user.lastLogin = new Date();
+        await user.save();
+        console.log('✅ Prefixed Firebase token verified successfully');
+        
+      } catch (firebaseError) {
+        console.error('❌ Prefixed Firebase token verification failed:', firebaseError.message);
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Invalid Firebase token',
+          error: firebaseError.message 
+        });
+      }
+    }
+    
+    // Method 2: Handle Firebase ID tokens (auto-detected) - Only if not already processed
+    else if (!tokenProcessed && firebaseAvailable && isFirebaseToken(token)) {
       try {
         console.log('🔥 Verifying Firebase ID token...');
         const decodedToken = await admin.auth().verifyIdToken(token);
@@ -158,6 +253,8 @@ const authenticate = async (req, res, next) => {
         console.log('   User:', decodedToken.email, 'UID:', decodedToken.uid);
         
         authType = 'firebase';
+        firebaseUid = decodedToken.uid;
+        tokenProcessed = true;
         
         // Find or create user in MongoDB based on Firebase UID
         user = await User.findOne({ firebaseUID: decodedToken.uid });
@@ -186,55 +283,17 @@ const authenticate = async (req, res, next) => {
         
       } catch (firebaseError) {
         console.error('❌ Firebase token verification failed:', firebaseError.message);
-        return res.status(401).json({ 
-          success: false, 
-          message: 'Invalid Firebase token',
-          error: firebaseError.message 
-        });
+        console.error('   Error code:', firebaseError.code);
+        console.error('   Error details:', firebaseError);
+        
+        // Don't immediately fail - try JWT as fallback
+        console.log('🔄 Firebase verification failed, trying JWT...');
+        tokenProcessed = false; // Allow JWT processing
       }
     }
-    // Method 2: Handle explicit Firebase prefix (legacy support)
-    else if (token.startsWith('firebase_')) {
-      if (!firebaseAvailable) {
-        return res.status(503).json({ 
-          success: false, 
-          message: 'Firebase authentication is not configured' 
-        });
-      }
-      
-      try {
-        const firebaseToken = token.replace('firebase_', '');
-        console.log('🔥 Verifying prefixed Firebase token...');
-        const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
-        authType = 'firebase_prefixed';
-        
-        user = await User.findOne({ firebaseUID: decodedToken.uid });
-        if (!user) {
-          user = new User({
-            firebaseUID: decodedToken.uid,
-            email: decodedToken.email,
-            name: decodedToken.name || decodedToken.email?.split('@')[0] || 'Unknown User',
-            role: 'user',
-            isActive: true,
-            permissions: ['read']
-          });
-          await user.save();
-        }
-        
-        user.lastLogin = new Date();
-        await user.save();
-        
-      } catch (firebaseError) {
-        console.error('❌ Prefixed Firebase token verification failed:', firebaseError.message);
-        return res.status(401).json({ 
-          success: false, 
-          message: 'Invalid token',
-          error: firebaseError.message 
-        });
-      }
-    }
-    // Method 3: Handle JWT tokens
-    else {
+    
+    // Method 3: Handle JWT tokens - Only if not already processed
+    if (!tokenProcessed) {
       try {
         if (!process.env.JWT_SECRET) {
           console.warn('⚠️  No JWT_SECRET found. Cannot verify JWT tokens.');
@@ -244,9 +303,10 @@ const authenticate = async (req, res, next) => {
           });
         }
         
-        console.log('🔑 Verifying JWT token...');
+        console.log('🔑 Attempting JWT token verification...');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         authType = 'jwt';
+        tokenProcessed = true;
         
         user = await User.findById(decoded.id);
         
@@ -269,9 +329,21 @@ const authenticate = async (req, res, next) => {
         
       } catch (jwtError) {
         console.error('❌ JWT token verification failed:', jwtError.message);
+        console.error('   JWT Error code:', jwtError.name);
+        
+        // Provide more specific error messages
+        let errorMessage = 'Invalid token';
+        if (jwtError.name === 'TokenExpiredError') {
+          errorMessage = 'Token has expired. Please log in again.';
+        } else if (jwtError.name === 'JsonWebTokenError') {
+          errorMessage = 'Invalid token format';
+        } else if (jwtError.name === 'NotBeforeError') {
+          errorMessage = 'Token not active yet';
+        }
+        
         return res.status(401).json({ 
           success: false, 
-          message: 'Invalid token',
+          message: errorMessage,
           error: jwtError.message 
         });
       }
@@ -279,6 +351,7 @@ const authenticate = async (req, res, next) => {
     
     // Final validation
     if (!user) {
+      console.error('❌ No user found after token processing');
       return res.status(401).json({ 
         success: false, 
         message: 'Authentication failed - no user found' 
@@ -287,6 +360,7 @@ const authenticate = async (req, res, next) => {
     
     // Check if user account is active
     if (!user.isActive) {
+      console.error('❌ User account is inactive:', user.email);
       return res.status(403).json({ 
         success: false, 
         message: 'Account has been deactivated' 
@@ -300,18 +374,22 @@ const authenticate = async (req, res, next) => {
     
     console.log(`✅ Authentication successful: ${user.email} (${authType})`);
     
-    // Create audit log (optional - can be disabled for high-traffic routes)
+    // Audit log with field names matching schema
     try {
       await AuditLog.create({
-        action: `${req.method} ${req.path}`,
-        performedBy: user._id,
-        ipAddress: req.ip || req.connection?.remoteAddress,
-        userAgent: req.get('User-Agent'),
-        metadata: {
+        userId: firebaseUid || user._id.toString(), // ✅ CORRECT field name
+        action: 'AUTH_SUCCESS',
+        resource: 'authentication', // ✅ REQUIRED field added
+        resourceId: user._id.toString(),
+        details: {
+          method: req.method,
+          path: req.path,
           role: user.role,
           authType: authType,
           timestamp: new Date()
-        }
+        },
+        ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
+        userAgent: req.get('User-Agent') || 'unknown'
       });
     } catch (auditError) {
       console.warn('⚠️  Failed to create audit log:', auditError.message);
@@ -322,6 +400,7 @@ const authenticate = async (req, res, next) => {
     
   } catch (error) {
     console.error('❌ Authentication middleware error:', error);
+    console.error('   Stack trace:', error.stack);
     res.status(401).json({ 
       success: false, 
       message: 'Authentication failed',
