@@ -4,25 +4,28 @@ const userSchema = new mongoose.Schema({
     firebaseUID: {
         type: String,
         required: true,
-        unique: true
+        unique: true,
+        sparse: true
     },
     email: {
         type: String,
         required: true,
         unique: true,
-        lowercase: true
+        lowercase: true,
+        trim: true
     },
     name: {
         type: String,
-        required: true
+        required: true,
+        trim: true
     },
     department: {
         type: String,
-        required: false
+        trim: true
     },
     phone: {
         type: String,
-        required: false
+        trim: true
     },
     role: {
         type: String,
@@ -30,9 +33,8 @@ const userSchema = new mongoose.Schema({
         default: 'user'
     },
     organizationId: {
-        type: mongoose.Schema.ObjectId,
-        ref: 'Organization',
-        required: false
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Organization'
     },
     permissions: [{
         type: String,
@@ -52,23 +54,34 @@ const userSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Index for better query performance
+// Remove duplicate index declarations - keep only these:
 userSchema.index({ organizationId: 1 });
 userSchema.index({ role: 1 });
+userSchema.index({ isActive: 1 });
 
-// Virtual for full name
+// Virtuals and methods remain the same
 userSchema.virtual('fullName').get(function() {
     return this.name;
 });
 
-// Instance method to check if user has permission
+userSchema.virtual('displayName').get(function() {
+    return this.name || this.email.split('@')[0];
+});
+
 userSchema.methods.hasPermission = function(permission) {
     return this.permissions.includes(permission) || this.role === 'admin' || this.role === 'owner';
 };
 
-// Instance method to check if user is admin or owner
 userSchema.methods.isAdminOrOwner = function() {
     return ['admin', 'owner'].includes(this.role);
+};
+
+userSchema.methods.isAdmin = function() {
+    return this.role === 'admin';
+};
+
+userSchema.methods.isActiveUser = function() {
+    return this.isActive === true;
 };
 
 const User = mongoose.model('User', userSchema);

@@ -40,13 +40,13 @@ const organizationSchema = new mongoose.Schema({
         website: String
     },
     owner: {
-        type: mongoose.Schema.ObjectId,
+        type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
     },
     members: [{
         user: {
-            type: mongoose.Schema.ObjectId,
+            type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
             required: true
         },

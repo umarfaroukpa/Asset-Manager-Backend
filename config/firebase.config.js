@@ -17,6 +17,7 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
+// This will only connect to emulator in development
 if (process.env.NODE_ENV === 'development') {
   connectFirestoreEmulator(db, 'localhost', 3000);
   console.log('Connected to Firestore emulator');
