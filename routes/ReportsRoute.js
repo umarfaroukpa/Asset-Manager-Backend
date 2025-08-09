@@ -4,6 +4,7 @@ import Asset from '../models/Asset.js';
 import Organization from '../models/Organizations.js';
 import Category from '../models/Category.js';
 import AssetsLog from '../models/AssetsLog.js';
+import SavedReport from '../models/SavedReports.js';
 
 const router = express.Router();
 
@@ -325,6 +326,336 @@ router.get('/utilization', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Server error generating utilization report'
+        });
+    }
+});
+
+// @route   GET /api/reports/saved
+// @desc    Get all saved reports for the user's organization
+// @access  Private
+router.get('/saved', async (req, res) => {
+    try {
+        console.log('📊 Fetching saved reports for user:', req.user.id);
+        
+        const savedReports = await SavedReport.find({ 
+            organization: req.user.organizationId 
+        })
+        .populate('createdBy', 'name email')
+        .sort({ createdAt: -1 });
+
+        res.json({
+            success: true,
+            data: savedReports
+        });
+
+    } catch (error) {
+        console.error('Saved reports error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error fetching saved reports'
+        });
+    }
+});
+
+// @route   GET /api/reports/saved/:id
+// @desc    Get a specific saved report
+// @access  Private
+router.get('/saved/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const report = await SavedReport.findOne({
+            _id: id,
+            organization: req.user.organizationId
+        }).populate('createdBy', 'name email');
+
+        if (!report) {
+            return res.status(404).json({
+                success: false,
+                message: 'Report not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: report
+        });
+
+    } catch (error) {
+        console.error('Get saved report error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error fetching saved report'
+        });
+    }
+});
+
+// @route   POST /api/reports/saved
+// @desc    Save a new report configuration
+// @access  Private
+router.post('/saved', async (req, res) => {
+    try {
+        const { name, type, filters, description, scheduleEnabled, scheduleConfig } = req.body;
+        
+        // Validate required fields
+        if (!name || !type) {
+            return res.status(400).json({
+                success: false,
+                message: 'Report name and type are required'
+            });
+        }
+
+        // Create new report
+        const newReport = new SavedReport({
+            name,
+            type,
+            filters: filters || {},
+            description: description || '',
+            organization: req.user.organizationId,
+            createdBy: req.user.id,
+            scheduleEnabled: scheduleEnabled || false,
+            scheduleConfig: scheduleConfig || {}
+        });
+
+        const savedReport = await newReport.save();
+        await savedReport.populate('createdBy', 'name email');
+
+        console.log('💾 Saving new report:', savedReport);
+
+        res.status(201).json({
+            success: true,
+            data: savedReport,
+            message: 'Report saved successfully'
+        });
+
+    } catch (error) {
+        console.error('Save report error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error saving report'
+        });
+    }
+});
+
+// @route   PUT /api/reports/saved/:id
+// @desc    Update a saved report
+// @access  Private
+router.put('/saved/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, type, filters, description, scheduleEnabled, scheduleConfig } = req.body;
+        
+        const updatedReport = await SavedReport.findOneAndUpdate(
+            { _id: id, organization: req.user.organizationId },
+            {
+                name,
+                type,
+                filters,
+                description,
+                scheduleEnabled,
+                scheduleConfig,
+                updatedAt: new Date()
+            },
+            { new: true }
+        ).populate('createdBy', 'name email');
+
+        if (!updatedReport) {
+            return res.status(404).json({
+                success: false,
+                message: 'Report not found'
+            });
+        }
+
+        console.log('📝 Updating report:', id, updatedReport);
+
+        res.json({
+            success: true,
+            data: updatedReport,
+            message: 'Report updated successfully'
+        });
+
+    } catch (error) {
+        console.error('Update report error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error updating report'
+        });
+    }
+});
+
+// @route   DELETE /api/reports/saved/:id
+// @desc    Delete a saved report
+// @access  Private
+router.delete('/saved/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const deletedReport = await SavedReport.findOneAndDelete({
+            _id: id,
+            organization: req.user.organizationId
+        });
+
+        if (!deletedReport) {
+            return res.status(404).json({
+                success: false,
+                message: 'Report not found'
+            });
+        }
+
+        console.log('🗑️ Deleting report:', id);
+
+        res.json({
+            success: true,
+            message: 'Report deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('Delete report error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error deleting report'
+        });
+    }
+});
+
+// @route   GET /api/reports/department
+// @desc    Department report in various formats
+// @access  Private
+router.get('/department', async (req, res) => {
+    try {
+        const { startDate, endDate, format = 'json' } = req.query;
+        
+        // Build query
+        const query = { organization: req.user.organizationId };
+        
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate) query.createdAt.$lte = new Date(endDate);
+        }
+
+        // Aggregate assets by department
+        const departmentData = await Asset.aggregate([
+            { $match: query },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'assignedTo',
+                    foreignField: '_id',
+                    as: 'assignedUser'
+                }
+            },
+            {
+                $group: {
+                    _id: { $ifNull: [{ $arrayElemAt: ['$assignedUser.department', 0] }, 'Unassigned'] },
+                    assetCount: { $sum: 1 },
+                    totalValue: { $sum: '$currentValue' },
+                    assets: {
+                        $push: {
+                            _id: '$_id',
+                            name: '$name',
+                            status: '$status',
+                            currentValue: '$currentValue',
+                            assignedTo: { $arrayElemAt: ['$assignedUser.name', 0] }
+                        }
+                    }
+                }
+            },
+            { $sort: { assetCount: -1 } }
+        ]);
+
+        res.json({
+            success: true,
+            data: {
+                reportType: 'department',
+                departments: departmentData,
+                summary: {
+                    totalDepartments: departmentData.length,
+                    totalAssets: departmentData.reduce((sum, dept) => sum + dept.assetCount, 0),
+                    totalValue: departmentData.reduce((sum, dept) => sum + dept.totalValue, 0)
+                },
+                filters: { startDate, endDate, format }
+            }
+        });
+
+    } catch (error) {
+        console.error('Department report error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error generating department report'
+        });
+    }
+});
+
+// @route   GET /api/reports/location
+// @desc    Location report in various formats
+// @access  Private
+router.get('/location', async (req, res) => {
+    try {
+        const { startDate, endDate, format = 'json' } = req.query;
+        
+        // Build query
+        const query = { organization: req.user.organizationId };
+        
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) query.createdAt.$gte = new Date(startDate);
+            if (endDate) query.createdAt.$lte = new Date(endDate);
+        }
+
+        // Aggregate assets by location
+        const locationData = await Asset.aggregate([
+            { $match: query },
+            {
+                $group: {
+                    _id: { $ifNull: ['$location', 'Unknown Location'] },
+                    assetCount: { $sum: 1 },
+                    totalValue: { $sum: '$currentValue' },
+                    statusBreakdown: {
+                        $push: '$status'
+                    },
+                    assets: {
+                        $push: {
+                            _id: '$_id',
+                            name: '$name',
+                            status: '$status',
+                            currentValue: '$currentValue',
+                            category: '$category'
+                        }
+                    }
+                }
+            },
+            { $sort: { assetCount: -1 } }
+        ]);
+
+        // Process status breakdown
+        const processedLocationData = locationData.map(location => ({
+            ...location,
+            statusBreakdown: location.statusBreakdown.reduce((acc, status) => {
+                acc[status] = (acc[status] || 0) + 1;
+                return acc;
+            }, {})
+        }));
+
+        res.json({
+            success: true,
+            data: {
+                reportType: 'location',
+                locations: processedLocationData,
+                summary: {
+                    totalLocations: locationData.length,
+                    totalAssets: locationData.reduce((sum, loc) => sum + loc.assetCount, 0),
+                    totalValue: locationData.reduce((sum, loc) => sum + loc.totalValue, 0)
+                },
+                filters: { startDate, endDate, format }
+            }
+        });
+
+    } catch (error) {
+        console.error('Location report error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error generating location report'
         });
     }
 });

@@ -158,6 +158,26 @@ const createFallbackRouter = (routeName) => {
       });
       break;
       
+    case 'reports':
+      router.get('/saved', (req, res) => {
+        res.json({
+          success: true,
+          data: []
+        });
+      });
+      
+      router.get('/assets', (req, res) => {
+        res.json({
+          success: true,
+          data: {
+            summary: { totalAssets: 0, totalValue: 0 },
+            groupedData: [],
+            groupBy: req.query.groupBy || 'category'
+          }
+        });
+      });
+      break;
+      
     default:
       router.get('/', (req, res) => {
         res.json({
@@ -174,6 +194,13 @@ const createFallbackRouter = (routeName) => {
 const importRoute = async (routePath, routeName) => {
   try {
     const module = await import(routePath);
+    
+    // Check if module has a default export and it's a function (router)
+    if (!module.default || typeof module.default !== 'function') {
+      console.warn(`⚠️  ${routeName} module doesn't export a proper router, using fallback`);
+      return createFallbackRouter(routeName);
+    }
+    
     console.log(`✅ ${routeName} routes imported successfully`);
     return module.default;
   } catch (err) {
@@ -196,17 +223,36 @@ const routes = {
   organizations: await importRoute('./routes/Organizations.js', 'organizations'),
   categories: await importRoute('./routes/CategoriesRoute.js', 'categories'),
   reports: await importRoute('./routes/ReportsRoute.js', 'reports'),
+  departmental: await importRoute('./routes/DepartmentalRoute.js', 'departmental'),
+  locations: await importRoute('./routes/LocationsRoute.js', 'locations')
 };
 
-// Mount all routes
-app.use('/api/auth', routes.auth);
-app.use('/api/users', routes.users);
-app.use('/api/dashboard', routes.dashboard);
-app.use('/api/assets', routes.assets);
-app.use('/api/organizations', routes.organizations);
-app.use('/api/categories', routes.categories);
-app.use('/api/reports', routes.reports);
-console.log('🎯 All routes mounted successfully\n');
+// Validate each route before mounting
+const validateAndMountRoute = (path, router, routeName) => {
+  if (!router || typeof router !== 'function') {
+    console.error(`❌ Invalid router for ${routeName}:`, typeof router);
+    const fallbackRouter = createFallbackRouter(routeName);
+    app.use(path, fallbackRouter);
+    console.log(`🔄 Using fallback router for ${path}`);
+  } else {
+    app.use(path, router);
+    console.log(`✅ Mounted ${routeName} routes at ${path}`);
+  }
+};
+
+// Mount all routes with validation
+console.log('\n🎯 Mounting routes...');
+validateAndMountRoute('/api/auth', routes.auth, 'auth');
+validateAndMountRoute('/api/users', routes.users, 'users');
+validateAndMountRoute('/api/dashboard', routes.dashboard, 'dashboard');
+validateAndMountRoute('/api/assets', routes.assets, 'assets');
+validateAndMountRoute('/api/organizations', routes.organizations, 'organizations');
+validateAndMountRoute('/api/categories', routes.categories, 'categories');
+validateAndMountRoute('/api/reports', routes.reports, 'reports');
+validateAndMountRoute('/api/departmental', routes.departmental, 'departmental');
+validateAndMountRoute('/api/locations', routes.locations, 'locations');
+
+console.log('✅ All routes mounted successfully\n');
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -231,7 +277,11 @@ app.get('/', (req, res) => {
       '/api/users',
       '/api/assets',
       '/api/dashboard',
-      '/api/test/test-firebase'
+      '/api/organizations',
+      '/api/categories',
+      '/api/reports',
+      '/api/departmental',
+      '/api/locations'
     ],
     docs: process.env.API_DOCS_URL || 'Not configured'
   });
@@ -253,6 +303,8 @@ app.use((req, res) => {
       'GET /api/categories',
       'GET /api/reports',
       'GET /api/auth/login',
+      'GET /api/departmental',
+      'GET /api/locations'
     ]
   });
 });

@@ -170,7 +170,7 @@ const createUserFromFirebaseToken = async (decodedToken) => {
       firebaseUID: decodedToken.uid,
       email: decodedToken.email,
       name: decodedToken.name || decodedToken.email?.split('@')[0] || 'Unknown User',
-      role: 'user', // Default role - customize based on your needs
+      role: decodedToken.role || 'user', 
       isActive: true,
       permissions: ['read'],
       createdAt: new Date(),

@@ -40,33 +40,30 @@ const handleError = (res, error, operation) => {
 // @route   GET /api/users/me
 // @desc    Get current user profile
 // @access  Private
+// In your users route, modify the response logging:
 router.get('/me', authenticateToken, async (req, res) => {
     try {
-        console.log('🔍 Getting current user profile for user:', req.user?.email);
-        
-        // Get the user from the request (set by authenticateToken middleware)
         const user = await User.findById(req.user._id)
-            .populate('organization', 'name description')
             .select('-firebaseUID -refreshTokens');
 
         if (!user) {
-            console.log('❌ User not found in database:', req.user._id);
-            return res.status(404).json({
-                success: false,
-                message: 'User profile not found'
-            });
+            return res.status(404).json({ success: false, message: 'User profile not found' });
         }
 
-        console.log('✅ User profile found:', user.email);
+        console.log('User document from DB:', JSON.stringify(user, null, 2)); 
         
         res.json({
             success: true,
-            data: { user }
+            data: { 
+                user: {
+                    ...user.toObject(),
+                    role: user.role
+                }
+            }
         });
     } catch (error) {
         handleError(res, error, 'fetching user profile');
-        };
-    
+    }
 });
 
 // @route   PUT /api/users/me
