@@ -37,6 +37,52 @@ const handleError = (res, error, operation) => {
     });
 };
 
+
+// @route   GET /api/users/:uid/role
+// @desc    Get user role by Firebase UID
+// @access  Private
+router.get('/:uid/role', authenticateToken, async (req, res) => {
+    try {
+        const { uid } = req.params;
+        
+        console.log('🔍 Fetching role for Firebase UID:', uid);
+        
+        // Find user by Firebase UID
+        const user = await User.findOne({ firebaseUID: uid })
+            .select('role email name');
+
+        if (!user) {
+            console.log('❌ User not found for UID:', uid);
+            // Return default role instead of error to prevent auth failures
+            return res.json({
+                success: true,
+                role: 'user', // Default role
+                message: 'User not found in database, using default role'
+            });
+        }
+
+        console.log('✅ User role found:', {
+            uid: uid,
+            email: user.email,
+            role: user.role
+        });
+
+        res.json({
+            success: true,
+            role: user.role || 'user' // Fallback to 'user' if role is undefined
+        });
+    } catch (error) {
+        console.error('❌ Get user role error:', error);
+        
+        // Return default role instead of error to prevent auth failures
+        res.json({
+            success: true,
+            role: 'user', // Default role
+            message: 'Error fetching role, using default'
+        });
+    }
+});
+
 // @route   GET /api/users/me
 // @desc    Get current user profile
 // @access  Private
@@ -118,59 +164,48 @@ router.put('/me', authenticateToken, async (req, res) => {
 // @route   GET /api/users
 // @desc    Get all users (with pagination and filtering)
 // @access  Private (Admin/Manager only)
-router.get('/', authenticateToken, requireRole(['admin', 'manager']), async (req, res) => {
+// @route   GET /api/users/me
+// @desc    Get current user profile
+// @access  Private
+router.get('/me', authenticateToken, async (req, res) => {
     try {
-        const { 
-            page = 1, 
-            limit = 10, 
-            search, 
-            department, 
-            role, 
-            status = 'active',
-            organization 
-        } = req.query;
-
-        // Build filter object
-        const filter = { status };
+        console.log('🔍 Fetching user profile for:', req.user?._id);
         
-        if (search) {
-            filter.$or = [
-                { name: { $regex: search, $options: 'i' } },
-                { email: { $regex: search, $options: 'i' } }
-            ];
+        const user = await User.findById(req.user._id)
+            .populate('organization', 'name description')
+            .select('-firebaseUID -refreshTokens');
+
+        if (!user) {
+            console.log('❌ User profile not found for ID:', req.user?._id);
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User profile not found' 
+            });
         }
+
+        console.log('✅ User profile found:', {
+            id: user._id,
+            email: user.email,
+            role: user.role,
+            name: user.name
+        });
         
-        if (department) filter.department = department;
-        if (role) filter.role = role;
-        if (organization) filter.organization = organization;
-
-        // Execute query with pagination
-        const users = await User.find(filter)
-            .populate('organization', 'name')
-            .select('-firebaseUID -refreshTokens')
-            .limit(limit * 1)
-            .skip((page - 1) * limit)
-            .sort({ createdAt: -1 });
-
-        const total = await User.countDocuments(filter);
-
         res.json({
             success: true,
-            data: {
-                users,
-                pagination: {
-                    current: parseInt(page),
-                    pages: Math.ceil(total / limit),
-                    total,
-                    limit: parseInt(limit)
+            data: { 
+                user: {
+                    ...user.toObject(),
+                    role: user.role || 'user', // Ensure role is always present
+                    displayName: user.name // Add displayName for frontend compatibility
                 }
             }
         });
     } catch (error) {
-        console.error('Get users error:', error);
+        console.error('❌ Get user profile error:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error while fetching users'
+            message: 'Server error while fetching user profile',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 });

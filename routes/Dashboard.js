@@ -21,7 +21,7 @@ router.get('/stats', async (req, res) => {
     // Create audit log for API access
     try {
       await createAuditLog({
-        userId: req.decodedToken?.uid || req.user.firebaseUid,
+        userId: req.user._id || req.user.firebaseUID,
         action: 'API_ACCESS',
         resource: 'dashboard/stats',
         details: {

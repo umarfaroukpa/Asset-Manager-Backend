@@ -29,6 +29,7 @@ const corsOptions = {
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:3000',
     'http://localhost:5173',
+    'http://localhost:3001',
     'http://127.0.0.1:5500'
   ],
   credentials: true,
@@ -217,14 +218,14 @@ const importRoute = async (routePath, routeName) => {
 console.log('\n🚀 Importing routes...');
 const routes = {
   auth: await importRoute('./routes/AuthRoute.js', 'auth'),
+  departmental: await importRoute('./routes/DepartmentalRoute.js', 'departmental'),
   users: await importRoute('./routes/UsersRoute.js', 'users'),
   dashboard: await importRoute('./routes/Dashboard.js', 'dashboard'),
   assets: await importRoute('./routes/Assets.js', 'assets'),
   organizations: await importRoute('./routes/Organizations.js', 'organizations'),
   categories: await importRoute('./routes/CategoriesRoute.js', 'categories'),
   reports: await importRoute('./routes/ReportsRoute.js', 'reports'),
-  departmental: await importRoute('./routes/DepartmentalRoute.js', 'departmental'),
-  locations: await importRoute('./routes/LocationsRoute.js', 'locations')
+  locations: await importRoute('./routes/LocationsRoute.js', 'locations'),
 };
 
 // Validate each route before mounting
@@ -243,13 +244,13 @@ const validateAndMountRoute = (path, router, routeName) => {
 // Mount all routes with validation
 console.log('\n🎯 Mounting routes...');
 validateAndMountRoute('/api/auth', routes.auth, 'auth');
+validateAndMountRoute('/api/departmental', routes.departmental, 'departmental');
 validateAndMountRoute('/api/users', routes.users, 'users');
 validateAndMountRoute('/api/dashboard', routes.dashboard, 'dashboard');
 validateAndMountRoute('/api/assets', routes.assets, 'assets');
 validateAndMountRoute('/api/organizations', routes.organizations, 'organizations');
 validateAndMountRoute('/api/categories', routes.categories, 'categories');
 validateAndMountRoute('/api/reports', routes.reports, 'reports');
-validateAndMountRoute('/api/departmental', routes.departmental, 'departmental');
 validateAndMountRoute('/api/locations', routes.locations, 'locations');
 
 console.log('✅ All routes mounted successfully\n');

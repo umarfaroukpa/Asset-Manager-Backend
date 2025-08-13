@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const auditLogSchema = new mongoose.Schema({
     userId: {
-        type: String,
+        type: mongoose.Schema.Types.Mixed,
         required: true,
         index: true
     },

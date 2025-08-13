@@ -1,155 +1,113 @@
 import mongoose from 'mongoose';
 
 const savedReportSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: [true, 'Report name is required'],
-        trim: true,
-        maxlength: [100, 'Report name cannot exceed 100 characters']
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  description: {
+    type: String,
+    trim: true
+  },
+  reportType: {
+    type: String,
+    required: true,
+    enum: ['assets', 'maintenance', 'audit', 'utilization', 'depreciation', 'compliance']
+  },
+  filters: {
+    groupBy: String,
+    status: String,
+    category: String,
+    startDate: Date,
+    endDate: Date,
+    userId: String,
+    assetId: String,
+    location: String,
+    department: String
+  },
+  configuration: {
+    format: {
+      type: String,
+      enum: ['json', 'csv', 'pdf'],
+      default: 'json'
     },
-    type: {
-        type: String,
-        required: [true, 'Report type is required'],
-        enum: {
-            values: [
-                'asset-inventory',
-                'financial-summary', 
-                'depreciation-analysis',
-                'category-distribution',
-                'maintenance-report',
-                'utilization-analysis',
-                'compliance-audit',
-                'assignment-report'
-            ],
-            message: 'Invalid report type'
-        }
+    columns: [String],
+    chartType: String,
+    grouping: String
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: true
+  },
+  isPublic: {
+    type: Boolean,
+    default: false
+  },
+  schedule: {
+    enabled: {
+      type: Boolean,
+      default: false
     },
-    filters: {
-        type: mongoose.Schema.Types.Mixed,
-        default: {},
-        validate: {
-            validator: function(filters) {
-                // Add any filter validation logic here
-                return typeof filters === 'object';
-            },
-            message: 'Filters must be an object'
-        }
+    frequency: {
+      type: String,
+      enum: ['daily', 'weekly', 'monthly', 'quarterly'],
+      default: 'weekly'
     },
-    description: {
-        type: String,
-        maxlength: [500, 'Description cannot exceed 500 characters']
-    },
-    organization: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Organization',
-        required: [true, 'Organization reference is required']
-    },
-    createdBy: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: [true, 'Creator reference is required']
-    },
-    isPublic: {
-        type: Boolean,
-        default: false
-    },
-    scheduleEnabled: {
-        type: Boolean,
-        default: false
-    },
-    scheduleConfig: {
-        frequency: {
-            type: String,
-            enum: {
-                values: ['daily', 'weekly', 'monthly', 'quarterly'],
-                message: 'Invalid schedule frequency'
-            },
-            default: 'monthly'
-        },
-        nextRun: {
-            type: Date,
-            validate: {
-                validator: function(date) {
-                    return !this.scheduleEnabled || date > new Date();
-                },
-                message: 'Next run must be in the future when scheduling is enabled'
-            }
-        },
-        recipients: {
-            type: [String],
-            validate: {
-                validator: function(emails) {
-                    if (!this.scheduleEnabled) return true;
-                    return emails.every(email => 
-                        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-                    );
-                },
-                message: 'Invalid email format in recipients'
-            }
-        }
-    },
+    nextRun: Date,
+    lastRun: Date,
+    recipients: [String] // email addresses
+  },
+  metadata: {
     lastGenerated: Date,
-    // Additional fields for report customization
-    chartConfig: {
-        type: mongoose.Schema.Types.Mixed,
-        default: {}
+    generationCount: {
+      type: Number,
+      default: 0
     },
-    columnConfig: {
-        type: mongoose.Schema.Types.Mixed,
-        default: {}
-    }
+    averageGenerationTime: Number,
+    dataSize: Number
+  }
 }, {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// Virtual for formatted schedule
-savedReportSchema.virtual('formattedSchedule').get(function() {
-    if (!this.scheduleEnabled) return 'Not scheduled';
-    return `${this.scheduleConfig.frequency} (next: ${this.scheduleConfig.nextRun.toLocaleDateString()})`;
+// Indexes for performance
+savedReportSchema.index({ createdBy: 1, organizationId: 1 });
+savedReportSchema.index({ reportType: 1 });
+savedReportSchema.index({ 'schedule.enabled': 1, 'schedule.nextRun': 1 });
+
+// Virtual for formatted creation date
+savedReportSchema.virtual('formattedCreatedAt').get(function() {
+  return this.createdAt.toLocaleDateString();
 });
 
-// Indexes for better query performance
-savedReportSchema.index({ organization: 1, createdBy: 1 });
-savedReportSchema.index({ type: 1, organization: 1 });
-savedReportSchema.index({ 
-    name: 'text',
-    description: 'text'
-}, {
-    weights: {
-        name: 5,
-        description: 1
-    }
-});
-
-// Pre-save hook to validate schedule
-savedReportSchema.pre('save', function(next) {
-    if (this.scheduleEnabled && !this.scheduleConfig.nextRun) {
-        this.scheduleConfig.nextRun = calculateNextRun(this.scheduleConfig.frequency);
-    }
-    next();
-});
-
-// Helper function to calculate next run date
-function calculateNextRun(frequency) {
-    const date = new Date();
-    switch(frequency) {
-        case 'daily':
-            date.setDate(date.getDate() + 1);
-            break;
-        case 'weekly':
-            date.setDate(date.getDate() + 7);
-            break;
-        case 'monthly':
-            date.setMonth(date.getMonth() + 1);
-            break;
-        case 'quarterly':
-            date.setMonth(date.getMonth() + 3);
-            break;
-    }
-    return date;
-}
+// Method to check if user can access this report
+savedReportSchema.methods.canAccess = function(userId, userRole) {
+  // Owner can always access
+  if (this.createdBy.toString() === userId.toString()) {
+    return true;
+  }
+  
+  // Public reports can be accessed by organization members
+  if (this.isPublic) {
+    return true;
+  }
+  
+  // Admins and managers can access all reports in their organization
+  if (['admin', 'manager'].includes(userRole)) {
+    return true;
+  }
+  
+  return false;
+};
 
 const SavedReport = mongoose.model('SavedReport', savedReportSchema);
 

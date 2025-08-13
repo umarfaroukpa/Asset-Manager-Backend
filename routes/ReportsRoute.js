@@ -4,7 +4,7 @@ import Asset from '../models/Asset.js';
 import Organization from '../models/Organizations.js';
 import Category from '../models/Category.js';
 import AssetsLog from '../models/AssetsLog.js';
-import SavedReport from '../models/SavedReports.js';
+import SavedReport from '../models/SavedReport.js';
 
 const router = express.Router();
 
