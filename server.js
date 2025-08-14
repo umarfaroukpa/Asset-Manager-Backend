@@ -158,6 +158,17 @@ const createFallbackRouter = (routeName) => {
         });
       });
       break;
+
+      case 'notifications':
+  router.get('/', (req, res) => {
+    res.json({
+      success: true,
+      data: [],
+      count: 0,
+      pagination: { page: 1, limit: 20, total: 0, pages: 1 },
+    });
+  });
+  break;
       
     case 'reports':
       router.get('/saved', (req, res) => {
@@ -226,6 +237,7 @@ const routes = {
   categories: await importRoute('./routes/CategoriesRoute.js', 'categories'),
   reports: await importRoute('./routes/ReportsRoute.js', 'reports'),
   locations: await importRoute('./routes/LocationsRoute.js', 'locations'),
+  notifications: await importRoute('./routes/NotificationsRoute.js', 'notifications'),
 };
 
 // Validate each route before mounting
@@ -252,6 +264,7 @@ validateAndMountRoute('/api/organizations', routes.organizations, 'organizations
 validateAndMountRoute('/api/categories', routes.categories, 'categories');
 validateAndMountRoute('/api/reports', routes.reports, 'reports');
 validateAndMountRoute('/api/locations', routes.locations, 'locations');
+validateAndMountRoute('/api/notifications', routes.notifications, 'notifications');
 
 console.log('✅ All routes mounted successfully\n');
 

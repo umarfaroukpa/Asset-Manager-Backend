@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 const assetSchema = new mongoose.Schema({
+  warrantyEnd: { type: Date },
   name: {
     type: String,
     required: [true, 'Asset name is required'],

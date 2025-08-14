@@ -166,19 +166,56 @@ const createUserFromFirebaseToken = async (decodedToken) => {
     console.log('   Firebase UID:', decodedToken.uid);
     console.log('   Email:', decodedToken.email);
     
+    // Check if user is already associated with an organization via Firebase custom claims
+    let organizationId = decodedToken.organizationId;
+
+    // If no organizationId in token, create a default organization
+    if (!organizationId) {
+      console.log('🏢 No organization found in token, creating default organization...');
+      let organization = await Organization.findOne({ name: 'Demo Organization' });
+      if (!organization) {
+        organization = new Organization({
+          name: 'Demo Organization',
+          description: 'Default organization for new users',
+          owner: null, // Will be set after user creation
+          members: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        await organization.save();
+        console.log('✅ Default organization created:', organization._id);
+      }
+      organizationId = organization._id;
+    }
+
     const user = new User({
       firebaseUID: decodedToken.uid,
       email: decodedToken.email,
       name: decodedToken.name || decodedToken.email?.split('@')[0] || 'Unknown User',
-      role: decodedToken.role || 'user', 
+      role: decodedToken.role || 'user',
+      organizationId, // Set organizationId
       isActive: true,
       permissions: ['read'],
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
-    
+
     await user.save();
-    console.log('✅ New user created in database');
+    console.log('✅ New user created in database:', user._id);
+
+    // Update organization to include the new user as a member
+    await Organization.findByIdAndUpdate(organizationId, {
+      $push: {
+        members: {
+          user: user._id,
+          role: user.role,
+          permissions: user.permissions,
+          joinedAt: new Date(),
+        },
+      },
+      ...(user.role === 'owner' ? { owner: user._id } : {}),
+    });
+
     return user;
   } catch (error) {
     console.error('❌ Failed to create user:', error.message);
