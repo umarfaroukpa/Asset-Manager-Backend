@@ -4,6 +4,8 @@ import { validateUser } from '../middleware/Validations.js';
 import User from '../models/User.js';
 import Organization from '../models/Organizations.js';
 
+// ✅ Import your Firebase Admin setup instead of direct admin import
+import { verifyFirebaseToken, isFirebaseAdminReady, initializeFirebaseAdmin } from '../config/firebase-admin.js';
 
 // Initialize Organization with potential fallback
 let OrganizationModel;
@@ -36,7 +38,6 @@ const handleError = (res, error, operation) => {
         message: `Server error while ${operation}`
     });
 };
-
 
 // @route   GET /api/users/:uid/role
 // @desc    Get user role by Firebase UID
@@ -86,29 +87,55 @@ router.get('/:uid/role', authenticateToken, async (req, res) => {
 // @route   GET /api/users/me
 // @desc    Get current user profile
 // @access  Private
-// In your users route, modify the response logging:
 router.get('/me', authenticateToken, async (req, res) => {
     try {
-        const user = await User.findById(req.user._id)
-            .select('-firebaseUID -refreshTokens');
-
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'User profile not found' });
+        console.log('🔍 Fetching user profile for:', req.user?._id);
+        
+        // ✅ Try to fetch user with organization population first
+        let user;
+        try {
+            user = await User.findById(req.user._id)
+                .select('-firebaseUID -refreshTokens')
+                .populate('organization', 'name description');
+        } catch (populateError) {
+            // If populate fails, fetch without population
+            console.log('⚠️ Organization field not available for population, fetching without it...');
+            user = await User.findById(req.user._id)
+                .select('-firebaseUID -refreshTokens');
         }
 
-        console.log('User document from DB:', JSON.stringify(user, null, 2)); 
+        if (!user) {
+            console.log('❌ User profile not found for ID:', req.user?._id);
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User profile not found' 
+            });
+        }
+
+        console.log('✅ User profile found:', {
+            id: user._id,
+            email: user.email,
+            role: user.role,
+            name: user.name
+        });
         
         res.json({
             success: true,
             data: { 
                 user: {
                     ...user.toObject(),
-                    role: user.role
+                    role: user.role || 'user', // Ensure role is always present
+                    displayName: user.name
                 }
             }
         });
     } catch (error) {
-        handleError(res, error, 'fetching user profile');
+        console.error('❌ Get user profile error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while fetching user profile',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
@@ -121,22 +148,42 @@ router.put('/me', authenticateToken, async (req, res) => {
 
         console.log('🔍 Updating current user profile for user:', req.user?.email);
 
-        const user = await User.findByIdAndUpdate(
-            req.user._id,
-            { 
-                name, 
-                department, 
-                phone, 
-                avatar,
-                updatedAt: new Date()
-            },
-            { 
-                new: true, 
-                runValidators: true 
-            }
-        )
-        .populate('organization', 'name description')
-        .select('-firebaseUID -refreshTokens');
+        // ✅ Try to update and populate, fallback if population fails
+        let user;
+        try {
+            user = await User.findByIdAndUpdate(
+                req.user._id,
+                { 
+                    name, 
+                    department, 
+                    phone, 
+                    avatar,
+                    updatedAt: new Date()
+                },
+                { 
+                    new: true, 
+                    runValidators: true 
+                }
+            )
+            .select('-firebaseUID -refreshTokens')
+            .populate('organization', 'name description');
+        } catch (populateError) {
+            console.log('⚠️ Organization field not available for population, updating without it...');
+            user = await User.findByIdAndUpdate(
+                req.user._id,
+                { 
+                    name, 
+                    department, 
+                    phone, 
+                    avatar,
+                    updatedAt: new Date()
+                },
+                { 
+                    new: true, 
+                    runValidators: true 
+                }
+            ).select('-firebaseUID -refreshTokens');
+        }
 
         if (!user) {
             return res.status(404).json({
@@ -161,55 +208,6 @@ router.put('/me', authenticateToken, async (req, res) => {
     }
 });
 
-// @route   GET /api/users
-// @desc    Get all users (with pagination and filtering)
-// @access  Private (Admin/Manager only)
-// @route   GET /api/users/me
-// @desc    Get current user profile
-// @access  Private
-router.get('/me', authenticateToken, async (req, res) => {
-    try {
-        console.log('🔍 Fetching user profile for:', req.user?._id);
-        
-        const user = await User.findById(req.user._id)
-            .populate('organization', 'name description')
-            .select('-firebaseUID -refreshTokens');
-
-        if (!user) {
-            console.log('❌ User profile not found for ID:', req.user?._id);
-            return res.status(404).json({ 
-                success: false, 
-                message: 'User profile not found' 
-            });
-        }
-
-        console.log('✅ User profile found:', {
-            id: user._id,
-            email: user.email,
-            role: user.role,
-            name: user.name
-        });
-        
-        res.json({
-            success: true,
-            data: { 
-                user: {
-                    ...user.toObject(),
-                    role: user.role || 'user', // Ensure role is always present
-                    displayName: user.name // Add displayName for frontend compatibility
-                }
-            }
-        });
-    } catch (error) {
-        console.error('❌ Get user profile error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error while fetching user profile',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-});
-
 // @route   GET /api/users/search
 // @desc    Search users by name or email
 // @access  Private
@@ -224,17 +222,33 @@ router.get('/search', authenticateToken, async (req, res) => {
             });
         }
 
-        const users = await User.find({
-            $or: [
-                { name: { $regex: q, $options: 'i' } },
-                { email: { $regex: q, $options: 'i' } }
-            ],
-            status: 'active'
-        })
-        .populate('organization', 'name')
-        .select('name email role department avatar')
-        .limit(parseInt(limit))
-        .sort({ name: 1 });
+        // ✅ Try to search with organization population first
+        let users;
+        try {
+            users = await User.find({
+                $or: [
+                    { name: { $regex: q, $options: 'i' } },
+                    { email: { $regex: q, $options: 'i' } }
+                ],
+                status: 'active'
+            })
+            .select('name email role department avatar')
+            .limit(parseInt(limit))
+            .sort({ name: 1 })
+            .populate('organization', 'name');
+        } catch (populateError) {
+            console.log('⚠️ Organization field not available for population, searching without it...');
+            users = await User.find({
+                $or: [
+                    { name: { $regex: q, $options: 'i' } },
+                    { email: { $regex: q, $options: 'i' } }
+                ],
+                status: 'active'
+            })
+            .select('name email role department avatar')
+            .limit(parseInt(limit))
+            .sort({ name: 1 });
+        }
 
         res.json({
             success: true,
@@ -254,9 +268,17 @@ router.get('/search', authenticateToken, async (req, res) => {
 // @access  Private
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
-        const user = await User.findById(req.params.id)
-            .populate('organization', 'name description')
-            .select('-firebaseUID -refreshTokens');
+        // ✅ Try to fetch with organization population first
+        let user;
+        try {
+            user = await User.findById(req.params.id)
+                .select('-firebaseUID -refreshTokens')
+                .populate('organization', 'name description');
+        } catch (populateError) {
+            console.log('⚠️ Organization field not available for population, fetching without it...');
+            user = await User.findById(req.params.id)
+                .select('-firebaseUID -refreshTokens');
+        }
 
         if (!user) {
             return res.status(404).json({
@@ -286,6 +308,122 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// @route   POST /api/users/register
+// @desc    Register new user via Firebase UID
+// @access  Public (No admin role required)
+router.post('/register', async (req, res) => {
+  try {
+    const { firebaseUID, email, name, userType, ...otherData } = req.body;
+
+    console.log('📝 Registration attempt:', { firebaseUID, email, name, userType });
+
+    // ✅ Check if authorization header exists
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Missing or invalid authorization token' 
+      });
+    }
+
+    // Extract token from Bearer header
+    const token = authHeader.split(' ')[1];
+    
+    // ✅ Use your Firebase Admin verification function instead of direct admin call
+    console.log('🔍 Verifying Firebase token...');
+    
+    // Ensure Firebase Admin is initialized
+    if (!isFirebaseAdminReady()) {
+      console.log('🔄 Firebase Admin not ready, initializing...');
+      await initializeFirebaseAdmin();
+    }
+    
+    // Verify the token using your custom function
+    const decodedToken = await verifyFirebaseToken(token);
+    
+    if (decodedToken.uid !== firebaseUID) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Token does not match user' 
+      });
+    }
+
+    console.log('✅ Token verified for user:', decodedToken.email);
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ 
+      $or: [
+        { firebaseUID: firebaseUID },
+        { email: email }
+      ]
+    });
+
+    if (existingUser) {
+      console.log('⚠️ User already exists:', existingUser.email);
+      return res.status(409).json({ 
+        success: false, 
+        message: 'User already exists with this email or Firebase UID' 
+      });
+    }
+
+    // Create new user
+    const user = new User({
+      firebaseUID,
+      email,
+      name: name || email.split('@')[0],
+      role: 'user', // Default role
+      status: 'active',
+      userType,
+      ...otherData
+    });
+
+    await user.save();
+    console.log('✅ User created successfully:', user.email);
+    
+    // ✅ Return user data without trying to populate organization
+    // Just get the basic user data without population
+    const userResponse = await User.findById(user._id)
+      .select('-firebaseUID -refreshTokens');
+    
+    res.status(201).json({ 
+      success: true, 
+      message: 'User registered successfully',
+      data: { user: userResponse } 
+    });
+    
+  } catch (error) {
+    console.error('Registration error:', error);
+    
+    // Handle specific Firebase errors
+    if (error.message.includes('Token has expired')) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Authentication token has expired' 
+      });
+    } else if (error.message.includes('Token has been revoked')) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Authentication token has been revoked' 
+      });
+    } else if (error.message.includes('Invalid token signature')) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid authentication token' 
+      });
+    } else if (error.message.includes('Firebase Admin initialization failed')) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Authentication service unavailable' 
+      });
+    }
+    
+    res.status(400).json({ 
+      success: false, 
+      message: error.message || 'Registration failed' 
+    });
+  }
+});
+
 // @route   POST /api/users
 // @desc    Create new user
 // @access  Private (Admin only)
@@ -302,36 +440,52 @@ router.post('/', authenticateToken, requireRole(['admin']), validateUser, async 
             });
         }
 
-        // Verify organization exists
+        // Verify organization exists (only if organization field exists in schema)
         if (organization) {
-            const org = await Organization.findById(organization);
-            if (!org) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Organization not found'
-                });
+            try {
+                const org = await Organization.findById(organization);
+                if (!org) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Organization not found'
+                    });
+                }
+            } catch (orgError) {
+                console.log('⚠️ Organization validation skipped - field may not exist in schema');
             }
         }
 
-        const user = new User({
+        // Create user data
+        const userData = {
             name,
             email,
             role,
             department,
             phone,
-            organization: organization || req.user.organization,
             status: 'active'
-        });
+        };
 
+        // Only add organization if it exists in schema
+        if (organization && req.user.organization) {
+            userData.organization = organization || req.user.organization;
+        }
+
+        const user = new User(userData);
         await user.save();
 
-        // Populate organization data before sending response
-        await user.populate('organization', 'name');
+        // ✅ Only populate organization if the field exists in schema
+        let savedUser;
+        try {
+            savedUser = await User.findById(user._id).populate('organization', 'name');
+        } catch (populateError) {
+            console.log('⚠️ Organization field not available for population, returning basic user data');
+            savedUser = await User.findById(user._id);
+        }
 
         res.status(201).json({
             success: true,
             message: 'User created successfully',
-            data: { user }
+            data: { user: savedUser }
         });
     } catch (error) {
         console.error('Create user error:', error);
@@ -364,13 +518,24 @@ router.put('/:id', authenticateToken, validateUser, async (req, res) => {
             updateData.status = status;
         }
 
-        const user = await User.findByIdAndUpdate(
-            req.params.id,
-            updateData,
-            { new: true, runValidators: true }
-        )
-        .populate('organization', 'name')
-        .select('-firebaseUID -refreshTokens');
+        // ✅ Try to update with organization population first
+        let user;
+        try {
+            user = await User.findByIdAndUpdate(
+                req.params.id,
+                updateData,
+                { new: true, runValidators: true }
+            )
+            .select('-firebaseUID -refreshTokens')
+            .populate('organization', 'name');
+        } catch (populateError) {
+            console.log('⚠️ Organization field not available for population, updating without it...');
+            user = await User.findByIdAndUpdate(
+                req.params.id,
+                updateData,
+                { new: true, runValidators: true }
+            ).select('-firebaseUID -refreshTokens');
+        }
 
         if (!user) {
             return res.status(404).json({
