@@ -53,6 +53,7 @@ app.use('/api/', limiter);
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 
 // Logging
 if (process.env.NODE_ENV === 'development') {
@@ -238,6 +239,7 @@ const routes = {
   reports: await importRoute('./routes/ReportsRoute.js', 'reports'),
   locations: await importRoute('./routes/LocationsRoute.js', 'locations'),
   notifications: await importRoute('./routes/NotificationsRoute.js', 'notifications'),
+  payment: await importRoute('./routes/PaymentRoute.js', 'payment')
 };
 
 // Validate each route before mounting
@@ -265,6 +267,7 @@ validateAndMountRoute('/api/categories', routes.categories, 'categories');
 validateAndMountRoute('/api/reports', routes.reports, 'reports');
 validateAndMountRoute('/api/locations', routes.locations, 'locations');
 validateAndMountRoute('/api/notifications', routes.notifications, 'notifications');
+validateAndMountRoute('/api/payment/', routes.payment, 'payment');
 
 console.log('✅ All routes mounted successfully\n');
 
