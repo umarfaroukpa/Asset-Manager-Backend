@@ -6,7 +6,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "setup-dev": "node scripts/setup-dev-data.js",
+    "build": "react-scripts build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
@@ -39,6 +39,7 @@
     "path-to-regexp": "^6.2.1",
     "rate-limiter-flexible": "^7.1.1",
     "react-confetti": "^6.4.0",
+    "react-scripts": "^5.0.1",
     "xlsx": "^0.18.5"
   }
 }
