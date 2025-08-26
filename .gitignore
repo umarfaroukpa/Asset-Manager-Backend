@@ -1,11 +1,8 @@
-# Ignore node_modules directory
+echo "# Ignore node_modules directory
 node_modules/
-
-# Ignore package-lock.json (optional, depending on your workflow)
-package-lock.json
-
 # Ignore other common files
 .DS_Store
 *.log
 dist/
 build/
+.env" > .gitignore
