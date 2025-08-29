@@ -1,7 +1,6 @@
 import admin from 'firebase-admin';
-import fs from 'fs';
-import path from 'path';
 import { fileURLToPath } from 'url';
+import path from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,7 +17,7 @@ export const initializeFirebaseAdmin = async () => {
   console.log('🔥 Initializing Firebase Admin...');
 
   try {
-    // Step 1: Clear any existing Firebase apps
+    // Clear any existing Firebase apps
     admin.apps.forEach(app => {
       console.log('🧹 Deleting existing Firebase app:', app.name);
       app.delete();
@@ -26,36 +25,11 @@ export const initializeFirebaseAdmin = async () => {
 
     let serviceAccount;
 
-    // Method 1: Load from service account file (RECOMMENDED)
-    const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || 
-                              path.join(__dirname, '..', 'config', 'firebase-service-account.json');
-
-    console.log('📁 Looking for service account file at:', serviceAccountPath);
-
-    if (fs.existsSync(serviceAccountPath)) {
-      console.log('✅ Service account file found');
-      const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
-      serviceAccount = JSON.parse(fileContent);
-
-      // Log service account details after loading
-      console.log('Service account contents:', {
-        project_id: serviceAccount.project_id,
-        client_email: serviceAccount.client_email,
-        has_private_key: !!serviceAccount.private_key
-      });
-
-      // Validate the service account
-      if (serviceAccount.project_id !== 'asset-manager-fb9d3') {
-        throw new Error(`Wrong project! Expected: asset-manager-fb9d3, Got: ${serviceAccount.project_id}`);
-      }
-
-      console.log('   ✅ Project ID verified:', serviceAccount.project_id);
-      console.log('   ✅ Client Email:', serviceAccount.client_email);
-      console.log('   ✅ Private Key ID:', serviceAccount.private_key_id);
-
-    } else if (process.env.FIREBASE_PROJECT_ID && 
-               process.env.FIREBASE_CLIENT_EMAIL && 
-               process.env.FIREBASE_PRIVATE_KEY) {
+    // Method 1: Use environment variables (RECOMMENDED for security)
+    if (process.env.FIREBASE_PROJECT_ID && 
+        process.env.FIREBASE_CLIENT_EMAIL && 
+        process.env.FIREBASE_PRIVATE_KEY) {
+      
       console.log('🔧 Using Firebase config from environment variables');
 
       // Validate project ID
@@ -64,36 +38,44 @@ export const initializeFirebaseAdmin = async () => {
       }
 
       serviceAccount = {
-        type: "service_account",
+        type: process.env.FIREBASE_TYPE || 'service_account',
         project_id: process.env.FIREBASE_PROJECT_ID,
         private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-        private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'), // Handle newlines
         client_email: process.env.FIREBASE_CLIENT_EMAIL,
         client_id: process.env.FIREBASE_CLIENT_ID,
-        auth_uri: "https://accounts.google.com/o/oauth2/auth",
-        token_uri: "https://oauth2.googleapis.com/token",
-        auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-        client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.FIREBASE_CLIENT_EMAIL)}`
+        auth_uri: process.env.FIREBASE_AUTH_URI || 'https://accounts.google.com/o/oauth2/auth',
+        token_uri: process.env.FIREBASE_TOKEN_URI || 'https://oauth2.googleapis.com/token',
+        auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL || 'https://www.googleapis.com/oauth2/v1/certs',
+        client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
+        universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN || 'googleapis.com'
       };
-
-      // Log service account details after creation
-      console.log('Service account contents:', {
-        project_id: serviceAccount.project_id,
-        client_email: serviceAccount.client_email,
-        has_private_key: !!serviceAccount.private_key
-      });
 
       console.log('✅ Service account created from environment variables');
       console.log('   Project ID:', serviceAccount.project_id);
       console.log('   Client Email:', serviceAccount.client_email);
-
-    } else {
-      console.error('❌ No Firebase configuration found!');
-      console.error('📋 To fix this:');
-      console.error('   1. Download service account from: https://console.firebase.google.com/project/asset-manager-fb9d3/settings/serviceaccounts/adminsdk');
-      console.error('   2. Save as: ./config/firebase-service-account.json');
-      console.error('   3. Or set environment variables: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY');
-      throw new Error('Firebase configuration missing');
+    } 
+    // Method 2: Fallback to file (NOT RECOMMENDED for production)
+    else {
+      const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || 
+                                path.join(__dirname, '..', 'config', 'firebase-service-account.json');
+      
+      console.log('⚠️  WARNING: Using file-based service account (not secure for production)');
+      console.log('📁 Looking for service account file at:', serviceAccountPath);
+      
+      try {
+        const fs = await import('fs');
+        if (fs.existsSync(serviceAccountPath)) {
+          const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+          serviceAccount = JSON.parse(fileContent);
+          console.log('✅ Service account loaded from file');
+        } else {
+          throw new Error('Service account file not found');
+        }
+      } catch (fileError) {
+        console.error('❌ File-based service account failed:', fileError.message);
+        throw new Error('No Firebase configuration found. Please set environment variables.');
+      }
     }
 
     // Validate required fields
@@ -112,7 +94,7 @@ export const initializeFirebaseAdmin = async () => {
     console.log('✅ Firebase Admin initialized successfully');
     console.log('   Project ID:', serviceAccount.project_id);
 
-    // Test the connection immediately
+    // Test the connection
     console.log('🧪 Testing Firebase Admin connection...');
     const testTimeout = new Promise((_, reject) => 
       setTimeout(() => reject(new Error('Connection test timeout')), 10000)
@@ -135,9 +117,9 @@ export const initializeFirebaseAdmin = async () => {
   } catch (error) {
     console.error('❌ Firebase Admin initialization failed:', error.message);
     console.error('📋 Troubleshooting steps:');
-    console.error('   1. Verify project ID is: asset-manager-fb9d3');
-    console.error('   2. Download fresh service account from Firebase Console');
-    console.error('   3. Check file permissions and path');
+    console.error('   1. Verify all environment variables are set');
+    console.error('   2. Check FIREBASE_PRIVATE_KEY format (should include \\n for newlines)');
+    console.error('   3. Verify project ID is: asset-manager-fb9d3');
     console.error('   4. Restart the server');
     adminInstance = null;
     firebaseInitialized = false;
@@ -158,7 +140,6 @@ export const verifyFirebaseToken = async (token) => {
     console.log('🔍 Verifying Firebase ID token...');
     console.log('   Token length:', token?.length || 0);
     console.log('   Firebase Admin available:', !!adminInstance);
-    console.log('   Project ID:', adminInstance?.options?.credential?.projectId);
 
     if (!token) {
       throw new Error('No token provided');
@@ -170,9 +151,7 @@ export const verifyFirebaseToken = async (token) => {
       uid: decodedToken.uid,
       email: decodedToken.email,
       aud: decodedToken.aud,
-      iss: decodedToken.iss,
-      iat: new Date(decodedToken.iat * 1000).toISOString(),
-      exp: new Date(decodedToken.exp * 1000).toISOString()
+      iss: decodedToken.iss
     });
 
     if (decodedToken.aud !== 'asset-manager-fb9d3') {
@@ -184,9 +163,7 @@ export const verifyFirebaseToken = async (token) => {
   } catch (error) {
     console.error('❌ Token verification failed:', {
       message: error.message,
-      code: error.code,
-      stack: error.stack,
-      projectId: adminInstance?.options?.credential?.projectId
+      code: error.code
     });
 
     if (error.code === 'auth/id-token-expired') {
@@ -195,10 +172,7 @@ export const verifyFirebaseToken = async (token) => {
       throw new Error('Token has been revoked');
     } else if (error.code === 'auth/argument-error') {
       console.error('❌ SIGNATURE VERIFICATION FAILED');
-      console.error('   This usually means:');
-      console.error('   1. Wrong service account for this project');
-      console.error('   2. Service account file is corrupted');
-      console.error('   3. Token was issued by different Firebase project');
+      console.error('   This usually means wrong service account or corrupted credentials');
       throw new Error('Invalid token signature - service account mismatch');
     } else {
       throw new Error(`Token verification failed: ${error.message}`);
