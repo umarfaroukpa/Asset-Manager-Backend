@@ -16,3 +16,5 @@ build/
 # System
 .DS_Store
 Thumbs.db
+config/firebase-service-account.json" 
+
